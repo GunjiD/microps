@@ -39,7 +39,4 @@ ether_input_helper(struct net_device *dev, ether_input_func_t callback);
 extern void
 ether_setup_helper(struct net_device *dev);
 
-extern struct net_device *
-ether_init(const char *name);
-
 #endif

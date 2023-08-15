@@ -220,8 +220,7 @@ net_input_handler(uint16_t type, const uint8_t *data, size_t len, struct net_dev
 	return -1;
       }
 
-      debugf("queue pushed (num:%u), dev=%s, type=0x%04x, len=%zu",
-	     proto->queue.num, dev->name, type, len);
+      debugf("queue pushed (num:%u), dev=%s, type=0x%04x, len=%zu", proto->queue.num, dev->name, type, len);
       debugdump(data, len);
 
       // プロトコルの受信キューへエントリを追加した後、ソフトウェア割り込みを発生させる
@@ -229,7 +228,7 @@ net_input_handler(uint16_t type, const uint8_t *data, size_t len, struct net_dev
       return 0;
     }
   }
-  /* unsupported protocols */
+  /* unsupported protocol */
   return 0;
 }
 
@@ -290,6 +289,7 @@ net_shutdown(void)
   debugf("shutting down");
 }
 
+#include "arp.h"
 #include "ip.h"
 #include "icmp.h"
 
@@ -301,6 +301,11 @@ net_init(void)
     return -1;
   }
 
+  if (arp_init() == -1) {
+    errorf("arp_init() failure");
+    return -1;
+  }
+  
   if (ip_init() == -1) {
     errorf("ip_init() failure");
     return -1;
