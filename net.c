@@ -3,12 +3,10 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "icmp.h"
 #include "platform.h"
 
 #include "util.h"
 #include "net.h"
-#include "ip.h"
 
 struct net_protocol {
   struct net_protocol *next;
@@ -163,7 +161,7 @@ net_device_output(struct net_device *dev, uint16_t type, const uint8_t *data, si
 
 /* NOTE: must not be call after net_run() */
 int
-net_protocol_register(uint16_t type, void (*handler)(const uint8_t *, size_t, struct net_device *))
+net_protocol_register(uint16_t type, void (*handler)(const uint8_t *data, size_t len, struct net_device *dev))
 {
   struct net_protocol *proto;
 
@@ -195,7 +193,8 @@ net_protocol_register(uint16_t type, void (*handler)(const uint8_t *, size_t, st
   return 0;
 }
 
-int net_input_handler(uint16_t type, const uint8_t *data, size_t len, struct net_device *dev)
+int
+net_input_handler(uint16_t type, const uint8_t *data, size_t len, struct net_device *dev)
 {
   struct net_protocol *proto;
   struct net_protocol_queue_entry *entry;
@@ -208,14 +207,18 @@ int net_input_handler(uint16_t type, const uint8_t *data, size_t len, struct net
 	errorf("memory_alloc() failure");
 	return -1;
       }
-
+      
       // 新しいエントリへメタデータの設定と受信データのコピー
-      entry->len = len;
       entry->dev = dev;
+      entry->len = len;
       memcpy(entry->data, data, len);
 
       // キューに新しいエントリを挿入
-      queue_push(&proto->queue, entry);
+      if (!queue_push(&proto->queue, entry)) {
+	errorf("queue_push() failure");
+	memory_free(entry);
+	return -1;
+      }
 
       debugf("queue pushed (num:%u), dev=%s, type=0x%04x, len=%zu",
 	     proto->queue.num, dev->name, type, len);
@@ -252,7 +255,8 @@ net_softirq_handler(void)
   return 0;
 }
 
-int net_run(void)
+int
+net_run(void)
 {
   struct net_device *dev;
 
@@ -285,6 +289,9 @@ net_shutdown(void)
   intr_shutdown();
   debugf("shutting down");
 }
+
+#include "ip.h"
+#include "icmp.h"
 
 int
 net_init(void)

@@ -33,7 +33,8 @@ static struct net_device_ops dummy_ops = {
 };
 
 struct net_device *
-dummy_init(void){
+dummy_init(void)
+{
   struct net_device *dev;
 
   dev = net_device_alloc();

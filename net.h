@@ -43,7 +43,7 @@ struct net_device {
   uint16_t flags;                      // 各種フラグ(net.hにNET_DEVICE_FLAG_XXXとして定義) 
   uint16_t hlen;                       /* header length */
   uint16_t alen;                       /* address length */
-  uint16_t addr[NET_DEVICE_ADDR_LEN];
+  uint8_t addr[NET_DEVICE_ADDR_LEN];
   union{
     uint8_t peer[NET_DEVICE_ADDR_LEN];
     uint8_t broadcast[NET_DEVICE_ADDR_LEN];

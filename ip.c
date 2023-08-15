@@ -65,36 +65,6 @@ ip_addr_pton(const char *p, ip_addr_t *n)
   return 0;
 }
 
-/* NOTE: must not be call after net_run() */
-int
-ip_protocol_register(uint8_t type, void (*handler)(const uint8_t *, size_t, ip_addr_t, ip_addr_t, struct ip_iface *))
-{
-  struct ip_protocol *entry;
-
-  // 重複登録の確認
-  for (entry = protocols; entry; entry = entry->next) {
-    if (type == entry->type) {
-      errorf("already registerd, type=0x%04x", type);
-      return  -1;
-    }
-  }
-
-  // 新しいプロトコルのエントリ用にメモリを確保
-  entry = memory_alloc(sizeof(*entry));
-  if (!entry) {
-    errorf("memory_alloc() failure");
-    return -1;
-  }
-
-  entry->type = type;
-  entry->handler = handler;
-  entry->next = protocols;
-  protocols = entry;
-  
-  infof("registered, type=%u", entry->type);
-  return 0;
-}
-
 // IPアドレスをネットワークバイトオーダーのバイナリ値から文字列に変換
 char *
 ip_addr_ntop(ip_addr_t n, char *p, size_t size)
@@ -106,7 +76,7 @@ ip_addr_ntop(ip_addr_t n, char *p, size_t size)
   return p;
 }
 
-void
+static void
 ip_dump(const uint8_t *data, size_t len)
 {
   struct ip_hdr *hdr;
@@ -185,8 +155,8 @@ ip_iface_register(struct net_device *dev, struct ip_iface *iface)
   infof("registered: dev=%s, unicast=%s, netmask=%s, broadcast=%s",
 	dev->name,
 	ip_addr_ntop(iface->unicast, addr1, sizeof(addr1)),
-	ip_addr_ntop(iface->unicast, addr2, sizeof(addr2)),
-	ip_addr_ntop(iface->unicast, addr3, sizeof(addr3)));
+	ip_addr_ntop(iface->netmask, addr2, sizeof(addr2)),
+	ip_addr_ntop(iface->broadcast, addr3, sizeof(addr3)));
   return 0;
 }
 
@@ -203,6 +173,36 @@ ip_iface_select(ip_addr_t addr)
     return entry;
 }
 
+/* NOTE: must not be call after net_run() */
+int
+ip_protocol_register(uint8_t type, void (*handler)(const uint8_t *data, size_t len, ip_addr_t src, ip_addr_t dst, struct ip_iface *iface))
+{
+  struct ip_protocol *entry;
+
+  // 重複登録の確認
+  for (entry = protocols; entry; entry = entry->next) {
+    if (entry->type == type) {
+      errorf("already registerd, type=0x%04x", type);
+      return  -1;
+    }
+  }
+
+  // 新しいプロトコルのエントリ用にメモリを確保
+  entry = memory_alloc(sizeof(*entry));
+  if (!entry) {
+    errorf("memory_alloc() failure");
+    return -1;
+  }
+
+  entry->type = type;
+  entry->handler = handler;
+  entry->next = protocols;
+  protocols = entry;
+  
+  infof("registered, type=%u", entry->type);
+  return 0;
+}
+
 static void
 ip_input(const uint8_t *data, size_t len, struct net_device *dev)
 {
@@ -211,7 +211,8 @@ ip_input(const uint8_t *data, size_t len, struct net_device *dev)
   uint16_t hlen, total, offset;
   struct ip_iface *iface;
   char addr[IP_ADDR_STR_LEN];
-
+  struct ip_protocol *proto;
+  
   // 入力データの長さがIPヘッダの最小サイズより小さい場合はエラー
   if (len < IP_HDR_SIZE_MIN) {
     errorf("too short");
@@ -269,8 +270,6 @@ ip_input(const uint8_t *data, size_t len, struct net_device *dev)
 	 dev->name, ip_addr_ntop(iface->unicast, addr, sizeof(addr)), hdr->protocol, total);
   ip_dump(data, total);
 
-  struct ip_protocol *proto;
-
   for (proto = protocols; proto; proto = proto->next) {
     if (hdr->protocol == proto->type) {
       proto->handler((uint8_t *)hdr + hlen, total - hlen, hdr->src, hdr->dst, iface);
@@ -317,11 +316,11 @@ ip_output_core(struct ip_iface *iface, uint8_t protocol, const uint8_t *data, si
   hdr->total = hton16(total);
   hdr->id = hton16(id);
   hdr->offset = hton16(offset);
-  hdr->ttl = 255;
+  hdr->ttl = 0xff;
   hdr->protocol = protocol;
+  hdr->sum = 0;
   hdr->src = src;
   hdr->dst = dst;
-  hdr->sum = 0;
   hdr->sum = cksum16((uint16_t *)hdr, hlen, 0);
 
   // ヘッダの直後にデータを配置する
@@ -330,6 +329,7 @@ ip_output_core(struct ip_iface *iface, uint8_t protocol, const uint8_t *data, si
 
   debugf("dev=%s, dst=%s, protocol=%u, len=%u",
 	 NET_IFACE(iface)->dev->name, ip_addr_ntop(dst, addr, sizeof(addr)), protocol, total);
+  ip_dump(buf, total);
   return ip_output_device(iface, buf, total, dst);
 }
 
@@ -385,7 +385,8 @@ ip_output(uint8_t protocol, const uint8_t *data, size_t len, ip_addr_t src, ip_a
   return len;
 }
 
-int ip_init(void)
+int
+ip_init(void)
 {
   if (net_protocol_register(NET_PROTOCOL_TYPE_IP, ip_input) == -1){
     errorf("net_protocol_register() failure");

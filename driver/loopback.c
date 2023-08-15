@@ -59,7 +59,7 @@ loopback_transmit(struct net_device *dev, uint16_t type, const uint8_t *data, si
   num = PRIV(dev)->queue.num;
   mutex_unlock(&PRIV(dev)->mutex);
 
-  debugf("queue pushed (num:%u), dev=%s, type=0x%04x, len=%zd", num, dev->name, type, len);
+  debugf("queue pushed (num:%u), dev=%s, type=0x%04x, len=%zu", num, dev->name, type, len);
   debugdump(data, len);
   intr_raise_irq(PRIV(dev)->irq);
   
@@ -132,7 +132,7 @@ loopback_init(void)
   }
 
   // 割り込みハンドラとしてloopback_isrを登録する
-  intr_request_irq(LOOPBACK_IRQ, loopback_isr, INTR_IRQ_SHARED, dev->name, dev);
+  intr_request_irq(lo->irq, loopback_isr, INTR_IRQ_SHARED, dev->name, dev);
 
   debugf("initialized, dev=%s", dev->name);
   

@@ -2,7 +2,6 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "net.h"
 #include "util.h"
 #include "ip.h"
 #include "icmp.h"
@@ -92,16 +91,14 @@ int icmp_output(uint8_t type, uint8_t code, uint32_t values, const uint8_t *data
 
   hdr = (struct icmp_hdr *)buf;
 
-  msg_len = ICMP_HDR_SIZE + sizeof(*data);
-  
   hdr->type = type;
   hdr->code = code;
   hdr->sum = 0;
-  hdr->values = ntoh32(values);
-  hdr->sum = cksum16((uint16_t *)hdr, msg_len, 0);
-
+  hdr->values = values;
   memcpy(hdr + 1, data, len);
-
+  msg_len = sizeof(*hdr) + len;  
+  hdr->sum = cksum16((uint16_t *)hdr, msg_len, 0);
+  
   debugf("%s => %s, len=%zu", ip_addr_ntop(src, addr1, sizeof(addr1)), ip_addr_ntop(dst, addr2, sizeof(addr2)), msg_len);
   icmp_dump((uint8_t *)hdr, msg_len);
 
@@ -115,7 +112,7 @@ icmp_input(const uint8_t *data, size_t len, ip_addr_t src, ip_addr_t dst, struct
   char addr1[IP_ADDR_STR_LEN];
   char addr2[IP_ADDR_STR_LEN];
 
-  if (len < ICMP_HDR_SIZE) {
+  if (len < sizeof(*hdr)) {
     errorf("too short");
     return;
   }
@@ -123,6 +120,7 @@ icmp_input(const uint8_t *data, size_t len, ip_addr_t src, ip_addr_t dst, struct
  
   if (cksum16((uint16_t *)data, len, 0) != 0) {
     errorf("cksum16() failure");
+    return;
   }
 
   debugf("%s => %s, len=%zu", ip_addr_ntop(src, addr1, sizeof(addr1)), ip_addr_ntop(dst, addr2, sizeof(addr2)), len);
@@ -140,7 +138,8 @@ icmp_input(const uint8_t *data, size_t len, ip_addr_t src, ip_addr_t dst, struct
       }
 }
 
-int icmp_init(void)
+int
+icmp_init(void)
 {
   if (ip_protocol_register(IP_PROTOCOL_ICMP, icmp_input) == -1) {
     errorf("ip_protocol_register() failure");
