@@ -1,7 +1,9 @@
+#include <bits/types/struct_timeval.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "platform.h"
 
@@ -21,9 +23,18 @@ struct net_protocol_queue_entry {
   uint8_t data[];
 };
 
+// タイマーの構造体；
+struct net_timer {
+  struct net_timer *next;  // 次のタイマーへのポインタ 
+  struct timeval interval; // 発火のインターバル
+  struct timeval last;     // 最後の発火時間
+  void (*handler)(void);   // 発火時に呼び出す関数へのポインタ
+};
+
 /* NOTE: if you want to add/delete the entries after net_run(),  you need to protect these lists with a mutex */
 static struct net_device *devices; // デバイスリスト(リストの先頭を指すポインタ)
 static struct net_protocol *protocols; // 登録されているプロトコルのリスト
+static struct net_timer *timers;
 
 // デバイス構造体のサイズのメモリを確保
 // ・memory_alloc() で確保したメモリ領域は0で初期化されている
@@ -190,6 +201,53 @@ net_protocol_register(uint16_t type, void (*handler)(const uint8_t *data, size_t
 
   infof("registered, type=0x%04x", type);
 
+  return 0;
+}
+
+/* NOTE: must not be call after net_run() */
+int
+net_timer_register(struct timeval interval, void (*handler)(void))
+{
+  struct net_timer *timer;
+
+  // タイマー構造体のメモリを確保
+  timer = memory_alloc(sizeof(*timer));
+  if (!timer) {
+    errorf("memory_alloc() failure");
+    return -1;
+  }
+
+  // タイマーに値を設定
+  timer->interval = interval;
+  gettimeofday(&timer->last, NULL);
+  timer->handler = handler;
+
+  // タイマーリストの先頭に追加
+  timer->next = timers;
+  timers = timer;
+
+  infof("registered: interva={%d, %d}", interval.tv_sec, interval.tv_usec);
+  return 0;
+}
+
+int
+net_timer_handler(void)
+{
+  struct net_timer *timer;
+  struct timeval now, diff;
+
+  // タイマーリストを巡回
+  for (timer = timers; timer; timer = timer->next) {
+    // 最後の発火からの経過時間を求める
+    gettimeofday(&now, NULL);
+    timersub(&now, &timer->last, &diff);
+   
+    if (timercmp(&timer->interval, &diff, <) != 0) { /* true (!0) or false (0) */
+      timer->handler();
+      timer->last = now;
+    }
+  }
+  
   return 0;
 }
 
