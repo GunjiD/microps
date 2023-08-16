@@ -194,6 +194,30 @@ arp_cache_insert(ip_addr_t pa, const uint8_t *ha)
 }
 
 static int
+arp_request(struct net_iface *iface, ip_addr_t tpa)
+{
+  struct arp_ether_ip request;
+
+  // ARPヘッダ領域の設定
+  request.hdr.hrd = hton16(ARP_HRD_ETHER);
+  request.hdr.pro = hton16(ARP_PRO_IP);
+  request.hdr.hln = ETHER_ADDR_LEN;
+  request.hdr.pln = IP_ADDR_LEN;
+  request.hdr.op = hton16(ARP_OP_REQUEST);
+  // 可変領域の設定
+  memcpy(request.sha, iface->dev->addr, ETHER_ADDR_LEN);
+  memcpy(request.spa, &((struct ip_iface *)iface)->unicast, IP_ADDR_LEN);
+  memset(request.tha,  0, ETHER_ADDR_LEN);
+  memcpy(request.tpa, &tpa, IP_ADDR_LEN);
+
+  debugf("dev=%s, len=%zu", iface->dev->name, sizeof(request));
+  arp_dump((uint8_t *)&request, sizeof(request));
+  
+  return net_device_output(iface->dev, ETHER_TYPE_ARP, (uint8_t *)&request, sizeof(request), iface->dev->broadcast);
+
+}
+
+static int
 arp_reply(struct net_iface *iface, const uint8_t *tha, ip_addr_t tpa, const uint8_t *dst)
 {
   struct arp_ether_ip reply;
@@ -297,9 +321,29 @@ arp_resolve(struct net_iface *iface, ip_addr_t pa, uint8_t *ha)
   // プロトコルアドレスをキーにARPキャッシュを検索
   cache = arp_cache_select(pa);
   if(!cache) {
+    // ARPキャッシュに問い合わせ中のエントリを作成
     debugf("cache not found pa=%s", ip_addr_ntop(pa, addr1, sizeof(addr1)));
+    cache = arp_cache_alloc();
+    if (!cache) {
+      mutex_unlock(&mutex);
+      errorf("arp_cache_unlock() failure");
+      return ARP_RESOLVE_ERROR;
+    }
+    
+    cache->state = ARP_CACHE_STATE_INCOMPLETE;
+    cache->pa = pa;
+    gettimeofday(&cache->timestamp, NULL);
     mutex_unlock(&mutex);
-    return ARP_RESOLVE_ERROR;
+    
+    arp_request(iface, pa);
+    return ARP_RESOLVE_INCOMPLETE;
+  }
+
+  // 見つかったエントリがINCOMPLETEの場合はパケロスしている可能性があるため再送する
+  if (cache->state == ARP_CACHE_STATE_INCOMPLETE) {
+    mutex_unlock(&mutex);
+    arp_request(iface, pa);
+    return ARP_RESOLVE_INCOMPLETE;
   }
 
   // 見つかったハードウェアアドレスをコピー
