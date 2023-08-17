@@ -118,11 +118,14 @@ intr_thread(void *arg)
     }
     switch(sig) {
     case SIGHUP:
-      // 割り込みスレッドへ終了を通知するためのシグナル
+      // 割nnnnり込みスレッドへ終了を通知するためのシグナル
       terminate = 1;
       break;
     case SIGUSR1:
       net_softirq_handler();
+      break;
+    case SIGUSR2:
+      net_event_handler();
       break;
     case SIGALRM:
       // 周期処理用のタイマーが発火した際の処理
@@ -188,6 +191,7 @@ intr_init(void)
   sigemptyset(&sigmask);
   sigaddset(&sigmask, SIGHUP);
   sigaddset(&sigmask, SIGUSR1);
+  sigaddset(&sigmask, SIGUSR2);
   sigaddset(&sigmask, SIGALRM);
   
   return  0;
